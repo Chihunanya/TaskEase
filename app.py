@@ -40,7 +40,7 @@ custom_css = """
         background-color: #1B263B;   /* Dark blue sidebar */
     }
     
-    /* Text inside sidebar */
+    /* Text inside sidebar -- */
     section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] label {
         color: #FFFFFF !important;
     }
