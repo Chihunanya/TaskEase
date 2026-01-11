@@ -40,9 +40,26 @@ custom_css = """
         background-color: #1B263B;   /* Dark blue sidebar */
     }
     
-    /* Text inside sidebar */
+    /* Text inside sidebar -- */
     section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] label {
         color: #FFFFFF !important;
+    }
+    /* delete button */
+    .delete-icon-btn {
+        background: transparent !important;
+        border: none !important;
+        color: #f87171 !important;
+        font-size: 1.45rem !important;
+        padding: 0.4rem !important;
+        border-radius: 50% !important;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        line-height: 1;
+    }
+
+    .delete-icon-btn:hover {
+        color: #ef4444 !important;
+        background: rgba(239, 68, 68, 0.14) !important;
     }
 </style>
 """
@@ -121,11 +138,20 @@ for i, task in enumerate(st.session_state.tasks):
             <span style="color:gray; font-size:12px;">{task['category']} • {task['created_at']}</span>
         </div>
         """, unsafe_allow_html=True)
-        
     with col3:
-        # Vertical alignment spacer
-        st.write("") 
-        st.write("")
-        if st.button("Delete", key=f"del_{i}"):
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+        
+        # Use both index + a hash of the task name (very collision resistant)
+        import hashlib
+        task_hash = hashlib.md5(task['name'].encode()).hexdigest()[:8]
+        unique_key = f"del_{i}_{task_hash}"
+        
+        if st.button(
+            "🗑️",
+            key=unique_key,
+            help="Delete this task",
+            type="tertiary",
+            use_container_width=False
+        ):
             delete_task(i)
-            st.rerun() # Refresh the app immediately
+            st.rerun()
