@@ -1,67 +1,63 @@
 import streamlit as st
-import pandas as pd
+import json
 from datetime import datetime
+import os
 
-# -----------------------------------------------------------------------------
-# 1. WEB DEV & DESIGN SKILLS: Custom CSS Configuration
-# -----------------------------------------------------------------------------
-# This block uses HTML/CSS to override the default Streamlit look.
-# It makes the app look like a custom product, not just a data script.
+# ---------------------- PAGE CONFIG ----------------------
 st.set_page_config(page_title="TaskEase", page_icon="✅", layout="centered")
 
+# ---------------------- CUSTOM CSS ----------------------
 custom_css = """
 <style>
-    /* Main Background adjustments */
-    .stApp {
-        background-color: #0D1B2A;  /* Dark blue */
-        color: #FFFFFF;              /* Make text white by default */
-    }
-    
-    /* Title Styling */
-    h1 {
-        color: #E0E0E0;              /* Light color for contrast */
-        font-family: 'Helvetica', sans-serif;
-        font-weight: 700;
-    }
-    
-    /* Custom Card Style for Tasks */
-    .task-card {
-        background-color: #1B263B;   /* Slightly lighter dark blue for cards */
-        padding: 20px;
-        border-radius: 10px;
-        border-left: 5px solid #4CAF50;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        margin-bottom: 10px;
-        color: #FFFFFF;
-    }
-    
-    /* Sidebar Styling */
-    section[data-testid="stSidebar"] {
-        background-color: #1B263B;   /* Dark blue sidebar */
-    }
-    
-    /* Text inside sidebar */
-    section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] label {
-        color: #FFFFFF !important;
-    }
+.stApp { background-color: #0D1B2A; color: #FFFFFF; }
+h1 { color: #E0E0E0; font-family: 'Helvetica', sans-serif; font-weight: 700; }
+
+.task-card {
+    background-color: #1B263B;
+    padding: 15px;
+    border-radius: 10px;
+    border-left: 5px solid #4CAF50;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    margin-bottom: 10px;
+    color: #FFFFFF;
+}
+.task-completed {
+    background-color: #1B263B;
+    padding: 15px;
+    border-radius: 10px;
+    border-left: 5px solid #FF4B4B;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    margin-bottom: 10px;
+    color: gray;
+    text-decoration: line-through;
+}
+section[data-testid="stSidebar"] { background-color: #1B263B; }
+section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] label { color: #FFFFFF !important; }
+div.stButton > button { width: 100%; margin-top: 5px; }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# -----------------------------------------------------------------------------
-# 2. PYTHON SKILLS: Backend Logic (Session State)
-# -----------------------------------------------------------------------------
-# Since we don't have a database, we use 'session_state' to remember tasks 
-# as long as the browser tab is open.
+# ---------------------- FILE PERSISTENCE ----------------------
+DATA_FILE = "tasks.json"
 
-if 'tasks' not in st.session_state:
-    st.session_state.tasks = []
+# Load tasks from file if exists
+if os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "r") as f:
+        st.session_state.tasks = json.load(f)
+else:
+    if 'tasks' not in st.session_state:
+        st.session_state.tasks = []
+
+# ---------------------- HELPER FUNCTIONS ----------------------
+def save_tasks():
+    with open(DATA_FILE, "w") as f:
+        json.dump(st.session_state.tasks, f)
 
 def add_task():
     task_name = st.session_state.input_task
     task_cat = st.session_state.input_category
     if task_name:
-        # Create a dictionary for the task (JSON structure)
         new_task = {
             "name": task_name,
             "category": task_cat,
@@ -69,63 +65,68 @@ def add_task():
             "completed": False
         }
         st.session_state.tasks.append(new_task)
-        # Clear the text input by resetting the key
-        st.session_state.input_task = "" 
+        st.session_state.input_task = ""
+        save_tasks()
 
 def delete_task(index):
     st.session_state.tasks.pop(index)
+    save_tasks()
 
-# -----------------------------------------------------------------------------
-# 3. PRODUCT DESIGN: Layout & User Interface
-# -----------------------------------------------------------------------------
+def toggle_complete(index):
+    st.session_state.tasks[index]['completed'] = not st.session_state.tasks[index]['completed']
+    save_tasks()
 
-# --- Sidebar (The "Control Panel") ---
+def edit_task(index):
+    new_name = st.session_state[f"edit_{index}"]
+    st.session_state.tasks[index]['name'] = new_name
+    save_tasks()
+
+# ---------------------- SIDEBAR ----------------------
 with st.sidebar:
     st.title("⚡ TaskEase")
     st.markdown("### Add a New Task")
     
-    # Input forms
     st.text_input("What needs to be done?", key="input_task")
     st.selectbox("Category", ["Work", "Personal", "Learning", "Health"], key="input_category")
     
-    # Button triggers the python function 'add_task'
     st.button("Add Task", on_click=add_task, type="primary")
     
     st.markdown("---")
     st.write(f"📊 Total Tasks: **{len(st.session_state.tasks)}**")
 
-# --- Main Area (The "Dashboard") ---
+# ---------------------- MAIN DASHBOARD ----------------------
 st.title("My Tasks")
 st.markdown("Welcome back! Here is your agenda for today.")
 
-# If no tasks exist, show a friendly empty state
 if not st.session_state.tasks:
     st.info("No tasks yet. Add one from the sidebar to get started! 🚀")
 
-# Loop through tasks and display them
+# Category icons
+icons = {"Work":"💼", "Personal":"🏠", "Learning":"📚", "Health":"🏋️"}
+
+# Display tasks
 for i, task in enumerate(st.session_state.tasks):
-    # Create columns to layout the task info and the delete button side-by-side
     col1, col2, col3 = st.columns([0.1, 0.7, 0.2])
     
-    # Logic to handle the display
     with col1:
-        # A simple visual indicator based on category
-        icon = "💼" if task['category'] == "Work" else "🏠"
+        icon = icons.get(task['category'], "📝")
         st.write(f"### {icon}")
-        
+    
     with col2:
-        # Using HTML here to render the custom 'task-card' style defined in CSS above
+        card_class = "task-completed" if task['completed'] else "task-card"
         st.markdown(f"""
-        <div class="task-card">
+        <div class="{card_class}">
             <strong>{task['name']}</strong><br>
             <span style="color:gray; font-size:12px;">{task['category']} • {task['created_at']}</span>
         </div>
         """, unsafe_allow_html=True)
         
+        # Edit task input
+        st.text_input("Edit task", value=task['name'], key=f"edit_{i}")
+        if st.button("Save", key=f"save_{i}"):
+            edit_task(i)
+            st.rerun()
+    
     with col3:
-        # Vertical alignment spacer
-        st.write("") 
-        st.write("")
-        if st.button("Delete", key=f"del_{i}"):
-            delete_task(i)
-            st.rerun() # Refresh the app immediately
+        st.button("⭕", key=f"complete_{i}", help="Mark complete", on_click=toggle_complete, args=(i,))
+        st.button("🗑️", key=f"del_{i}", help="Delete task", on_click=delete_task, args=(i,))
