@@ -1,132 +1,248 @@
+# app.py 
+
 import streamlit as st
-import json
-from datetime import datetime
-import os
+import sqlite3
+from datetime import datetime, date
+import bcrypt
 
-# ---------------------- PAGE CONFIG ----------------------
-st.set_page_config(page_title="TaskEase", page_icon="✅", layout="centered")
+# -----------------------
+# Database Setup
+# -----------------------
+conn = sqlite3.connect("taskease.db", check_same_thread=False)
+c = conn.cursor()
 
-# ---------------------- CUSTOM CSS ----------------------
-custom_css = """
-<style>
-.stApp { background-color: #0D1B2A; color: #FFFFFF; }
-h1 { color: #E0E0E0; font-family: 'Helvetica', sans-serif; font-weight: 700; }
+c.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL
+)
+""")
 
-.task-card {
-    background-color: #1B263B;
-    padding: 15px;
-    border-radius: 10px;
-    border-left: 5px solid #4CAF50;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    margin-bottom: 10px;
-    color: #FFFFFF;
-}
-.task-completed {
-    background-color: #1B263B;
-    padding: 15px;
-    border-radius: 10px;
-    border-left: 5px solid #FF4B4B;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    margin-bottom: 10px;
-    color: gray;
-    text-decoration: line-through;
-}
-section[data-testid="stSidebar"] { background-color: #1B263B; }
-section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] label { color: #FFFFFF !important; }
-div.stButton > button { width: 100%; margin-top: 5px; }
-</style>
-"""
-st.markdown(custom_css, unsafe_allow_html=True)
+c.execute("""
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    deadline DATE,
+    status TEXT DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+)
+""")
+conn.commit()
 
-# ---------------------- FILE PERSISTENCE ----------------------
-DATA_FILE = "tasks.json"
+# -----------------------
+# Helper Functions
+# -----------------------
+def hash_password(password):
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
 
-# Load tasks from file if exists
-if os.path.exists(DATA_FILE):
-    with open(DATA_FILE, "r") as f:
-        st.session_state.tasks = json.load(f)
+def verify_password(password, password_hash):
+    return bcrypt.checkpw(password.encode(), password_hash)
+
+def add_user(username, email, password):
+    try:
+        c.execute("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+                  (username, email, hash_password(password)))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+def authenticate_user(username, password):
+    c.execute("SELECT id, password_hash FROM users WHERE username=?", (username,))
+    user = c.fetchone()
+    if user and verify_password(password, user[1]):
+        return user[0]
+    return None
+
+def add_task(user_id, title, description, category, deadline):
+    c.execute("""INSERT INTO tasks (user_id, title, description, category, deadline) 
+                 VALUES (?, ?, ?, ?, ?)""",
+              (user_id, title, description, category, deadline))
+    conn.commit()
+
+def get_tasks(user_id):
+    c.execute("SELECT id, title, description, category, deadline, status FROM tasks WHERE user_id=? ORDER BY deadline ASC", (user_id,))
+    return c.fetchall()
+
+def update_task_status(task_id, status):
+    c.execute("UPDATE tasks SET status=? WHERE id=?", (status, task_id))
+    conn.commit()
+
+# -----------------------
+# Streamlit App
+# -----------------------
+st.set_page_config(page_title="Taskease", layout="wide")
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_id = None
+
+# -----------------------
+# Login / Signup
+# -----------------------
+if not st.session_state.logged_in:
+    st.title("📝 Taskease - Student Task Manager")
+    auth_tab = st.tabs(["Login", "Sign Up"])
+
+    with auth_tab[0]:
+        st.subheader("Login")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        if st.button("Login"):
+            user_id = authenticate_user(username, password)
+            if user_id:
+                st.session_state.logged_in = True
+                st.session_state.user_id = user_id
+                st.success("Logged in successfully!")
+                st.experimental_rerun()
+            else:
+                st.error("Invalid username or password.")
+
+    with auth_tab[1]:
+        st.subheader("Sign Up")
+        new_username = st.text_input("Username", key="signup_user")
+        new_email = st.text_input("Email")
+        new_password = st.text_input("Password", type="password", key="signup_pass")
+        if st.button("Sign Up"):
+            if add_user(new_username, new_email, new_password):
+                st.success("Account created! You can login now.")
+            else:
+                st.error("Username or email already exists.")
+
+# -----------------------
+# Dashboard
+# -----------------------
 else:
-    if 'tasks' not in st.session_state:
-        st.session_state.tasks = []
+    st.sidebar.title("📊 Dashboard")
+    menu = st.sidebar.radio("Menu", ["View Tasks", "Add Task", "Analytics", "Logout"])
 
-# ---------------------- HELPER FUNCTIONS ----------------------
-def save_tasks():
-    with open(DATA_FILE, "w") as f:
-        json.dump(st.session_state.tasks, f)
+    if menu == "View Tasks":
+        st.header("📋 Your Tasks")
+        tasks = get_tasks(st.session_state.user_id)
+        today = date.today()
 
-def add_task():
-    task_name = st.session_state.input_task
-    task_cat = st.session_state.input_category
-    if task_name:
-        new_task = {
-            "name": task_name,
-            "category": task_cat,
-            "created_at": datetime.now().strftime("%H:%M"),
-            "completed": False
-        }
-        st.session_state.tasks.append(new_task)
-        st.session_state.input_task = ""
-        save_tasks()
+        # Sidebar Summary
+        st.sidebar.subheader("📌 Upcoming Tasks")
+        upcoming_tasks = [t for t in tasks if t[5]=="Pending" and t[4] and datetime.strptime(t[4], "%Y-%m-%d").date() >= today]
+        if upcoming_tasks:
+            for t in upcoming_tasks[:5]:  # show next 5 tasks
+                st.sidebar.markdown(f"- {t[1]} (Due: {t[4]})")
+        else:
+            st.sidebar.write("No upcoming tasks!")
 
-def delete_task(index):
-    st.session_state.tasks.pop(index)
-    save_tasks()
+        # Search / Filter
+        st.sidebar.subheader("🔍 Filter Tasks")
+        categories = list(set([t[3] for t in tasks]))
+        selected_category = st.sidebar.selectbox("Category", ["All"] + categories)
+        status_options = ["All", "Pending", "Completed"]
+        selected_status = st.sidebar.selectbox("Status", status_options)
 
-def toggle_complete(index):
-    st.session_state.tasks[index]['completed'] = not st.session_state.tasks[index]['completed']
-    save_tasks()
+        # Filter tasks
+        filtered_tasks = tasks
+        if selected_category != "All":
+            filtered_tasks = [t for t in filtered_tasks if t[3] == selected_category]
+        if selected_status != "All":
+            filtered_tasks = [t for t in filtered_tasks if t[5] == selected_status]
 
-def edit_task(index):
-    new_name = st.session_state[f"edit_{index}"]
-    st.session_state.tasks[index]['name'] = new_name
-    save_tasks()
+        # Overall Progress
+        total_tasks = len(filtered_tasks)
+        completed_tasks = len([t for t in filtered_tasks if t[5]=="Completed"])
+        progress = (completed_tasks / total_tasks) if total_tasks > 0 else 0
+        st.subheader("📊 Progress")
+        st.progress(progress)
 
-# ---------------------- SIDEBAR ----------------------
-with st.sidebar:
-    st.title("⚡ TaskEase")
-    st.markdown("### Add a New Task")
-    
-    st.text_input("What needs to be done?", key="input_task")
-    st.selectbox("Category", ["Work", "Personal", "Learning", "Health"], key="input_category")
-    
-    st.button("Add Task", on_click=add_task, type="primary")
-    
-    st.markdown("---")
-    st.write(f"📊 Total Tasks: **{len(st.session_state.tasks)}**")
+        # Display tasks as cards
+        if filtered_tasks:
+            for task in filtered_tasks:
+                task_id, title, description, category, deadline, status = task
 
-# ---------------------- MAIN DASHBOARD ----------------------
-st.title("My Tasks")
-st.markdown("Welcome back! Here is your agenda for today.")
+                # Notification and color
+                deadline_date = datetime.strptime(deadline, "%Y-%m-%d").date() if deadline else None
+                notif = ""
+                color = "#ffffff"
+                if deadline_date and status == "Pending":
+                    if deadline_date < today:
+                        notif = "⛔ Overdue"
+                        color = "#f8d7da"
+                    elif deadline_date == today:
+                        notif = "⚡ Due Today"
+                        color = "#fff3cd"
 
-if not st.session_state.tasks:
-    st.info("No tasks yet. Add one from the sidebar to get started! 🚀")
+                # Card layout
+                with st.container():
+                    st.markdown(f"""
+                    <div style="
+                        background-color:{color};
+                        padding:20px;
+                        border-radius:12px;
+                        margin-bottom:15px;
+                        box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+                    ">
+                        <h3 style="margin-bottom:5px;">{title} {notif}</h3>
+                        <p><strong>Category:</strong> {category}</p>
+                        <p><strong>Deadline:</strong> {deadline if deadline else 'No deadline'}</p>
+                        <details>
+                            <summary><strong>Description</strong></summary>
+                            <p>{description}</p>
+                        </details>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-# Category icons
-icons = {"Work":"💼", "Personal":"🏠", "Learning":"📚", "Health":"🏋️"}
+                    # Status dropdown
+                    status_option = st.selectbox(
+                        "Status", ["Pending", "Completed"],
+                        index=0 if status=="Pending" else 1, key=f"status_{task_id}"
+                    )
+                    if status_option != status:
+                        update_task_status(task_id, status_option)
+                        st.success(f"Updated '{title}' status to {status_option}")
 
-# Display tasks
-for i, task in enumerate(st.session_state.tasks):
-    col1, col2, col3 = st.columns([0.1, 0.7, 0.2])
-    
-    with col1:
-        icon = icons.get(task['category'], "📝")
-        st.write(f"### {icon}")
-    
-    with col2:
-        card_class = "task-completed" if task['completed'] else "task-card"
-        st.markdown(f"""
-        <div class="{card_class}">
-            <strong>{task['name']}</strong><br>
-            <span style="color:gray; font-size:12px;">{task['category']} • {task['created_at']}</span>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Edit task input
-        st.text_input("Edit task", value=task['name'], key=f"edit_{i}")
-        if st.button("Save", key=f"save_{i}"):
-            edit_task(i)
-            st.rerun()
-    
-    with col3:
-        st.button("⭕", key=f"complete_{i}", help="Mark complete", on_click=toggle_complete, args=(i,))
-        st.button("🗑️", key=f"del_{i}", help="Delete task", on_click=delete_task, args=(i,))
+        else:
+            st.info("No tasks match your filter.")
+
+    elif menu == "Add Task":
+        st.header("➕ Add New Task")
+        title = st.text_input("Task Title")
+        description = st.text_area("Description")
+        category = st.selectbox("Category", ["School", "Personal", "Project", "Other"])
+        deadline = st.date_input("Deadline (optional)")
+        if st.button("Add Task"):
+            add_task(st.session_state.user_id, title, description, category, deadline)
+            st.success("Task added successfully!")
+            st.experimental_rerun()
+
+    elif menu == "Analytics":
+        st.header("📊 Task Analytics")
+        tasks = get_tasks(st.session_state.user_id)
+        total = len(tasks)
+        completed = len([t for t in tasks if t[5]=="Completed"])
+        pending = total - completed
+        st.metric("Total Tasks", total)
+        st.metric("Completed", completed)
+        st.metric("Pending", pending)
+
+        # Overall Progress Bar
+        overall_progress = (completed / total) if total > 0 else 0
+        st.progress(overall_progress)
+
+        # Category-wise Progress
+        categories = list(set([t[3] for t in tasks]))
+        for cat in categories:
+            cat_tasks = [t for t in tasks if t[3]==cat]
+            cat_total = len(cat_tasks)
+            cat_completed = len([t for t in cat_tasks if t[5]=="Completed"])
+            cat_progress = (cat_completed / cat_total) if cat_total > 0 else 0
+            st.write(f"**{cat} Progress:**")
+            st.progress(cat_progress)
+
+    elif menu == "Logout":
+        st.session_state.logged_in = False
+        st.session_state.user_id = None
+        st.success("Logged out successfully!")
+        st.experimental_rerun()
