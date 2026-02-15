@@ -165,14 +165,14 @@ else:
                 # Notification and color
                 deadline_date = datetime.strptime(deadline, "%Y-%m-%d").date() if deadline else None
                 notif = ""
-                color = "#ffffff"
+                color = "#080808"
                 if deadline_date and status == "Pending":
                     if deadline_date < today:
                         notif = "⛔ Overdue"
-                        color = "#f8d7da"
+                        color = "#080808"
                     elif deadline_date == today:
                         notif = "⚡ Due Today"
-                        color = "#fff3cd"
+                        color = "#181817"
 
                 # Card layout
                 with st.container():
